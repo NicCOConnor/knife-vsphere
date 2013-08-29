@@ -104,6 +104,11 @@ class Chef::Knife::VsphereVmClone < Chef::Knife::BaseVsphereCommand
          :long => "--bootstrap",
          :description => "Indicates whether to bootstrap the VM",
          :boolean => false
+         
+  option :bootstrap_protocol,
+          :long => "--bootstrap-protocol protocol",
+          :description => "Protocol to bootstrap windows servers. options: winrm",
+          :default => nil
 
   option :fqdn,
          :long => "--fqdn SERVER_FQDN",
@@ -194,6 +199,28 @@ class Chef::Knife::VsphereVmClone < Chef::Knife::BaseVsphereCommand
          :long => "--log_level",
          :description => "Set the log level (debug, info, warn, error, fatal) for chef-client",
          :proc => lambda { |l| l.to_sym }
+           
+  def tcp_test_winrm(hostname, port)
+          TCPSocket.new(hostname, port)
+          yield
+          true
+        rescue SocketError
+          sleep 2
+          false
+        rescue Errno::ETIMEDOUT
+          false
+        rescue Errno::EPERM
+          false
+        rescue Errno::ECONNREFUSED
+          sleep 2
+          false
+        rescue Errno::EHOSTUNREACH
+          sleep 2
+          false
+        rescue Errno::ENETUNREACH
+          sleep 2
+          false
+        end         
 
   def run
     $stdout.sync = true
@@ -246,10 +273,15 @@ class Chef::Knife::VsphereVmClone < Chef::Knife::BaseVsphereCommand
     if get_config(:bootstrap)
       sleep 2 until vm.guest.ipAddress
       config[:fqdn] = vm.guest.ipAddress unless config[:fqdn]
-      print "Waiting for sshd..."
-      print "." until tcp_test_ssh(config[:fqdn])
-      puts "done"
-
+      if get_config(:bootstrap_protocol == 'winrm')
+        print "Waiting for winrm..."
+        print "." until tcp_test_winrm(config[:fqdn], get_config[:winrm_port])
+        puts "done"
+      else  
+        print "Waiting for sshd..."
+        print "." until tcp_test_ssh(config[:fqdn])
+        puts "done"
+      end
       bootstrap_for_node.run
     end
   end
@@ -439,26 +471,37 @@ class Chef::Knife::VsphereVmClone < Chef::Knife::BaseVsphereCommand
 
   def bootstrap_for_node()
     Chef::Knife::Bootstrap.load_deps
-    bootstrap = Chef::Knife::Bootstrap.new
-    bootstrap.name_args = [config[:fqdn]]
-    bootstrap.config[:run_list] = get_config(:run_list).split(/[\s,]+/)
-    bootstrap.config[:secret_file] = get_config(:secret_file)
-    bootstrap.config[:ssh_user] = get_config(:ssh_user)
-    bootstrap.config[:ssh_password] = get_config(:ssh_password)
-    bootstrap.config[:ssh_port] = get_config(:ssh_port)
-    bootstrap.config[:identity_file] = get_config(:identity_file)
-    bootstrap.config[:chef_node_name] = get_config(:chef_node_name)
-    bootstrap.config[:prerelease] = get_config(:prerelease)
-    bootstrap.config[:bootstrap_version] = get_config(:bootstrap_version)
-    bootstrap.config[:distro] = get_config(:distro)
-    bootstrap.config[:use_sudo] = true unless get_config(:ssh_user) == 'root'
-    bootstrap.config[:template_file] = get_config(:template_file)
-    bootstrap.config[:environment] = get_config(:environment)
-    bootstrap.config[:first_boot_attributes] = get_config(:first_boot_attributes)
-    bootstrap.config[:log_level] = get_config(:log_level)
-    # may be needed for vpc_mode
-    bootstrap.config[:no_host_key_verify] = get_config(:no_host_key_verify)
-    bootstrap
+    if config[:bootstrap_protocol] == 'winrm'
+      #TODO Bootstrap with winrm
+      bootstrap = Chef::Knife::BootstrapWindowsWinrm.new()
+      bootstrap.name_args = [config[:fqdn]]
+      bootstrap.config[:run_list]  = get_config(:run_list).split(/[\s,]+/)  
+      bootstrap.con
+
+          
+    else
+      #bootstrap with ssh
+      bootstrap = Chef::Knife::Bootstrap.new
+      bootstrap.name_args = [config[:fqdn]]
+      bootstrap.config[:run_list] = get_config(:run_list).split(/[\s,]+/)
+      bootstrap.config[:secret_file] = get_config(:secret_file)
+      bootstrap.config[:ssh_user] = get_config(:ssh_user)
+      bootstrap.config[:ssh_password] = get_config(:ssh_password)
+      bootstrap.config[:ssh_port] = get_config(:ssh_port)
+      bootstrap.config[:identity_file] = get_config(:identity_file)
+      bootstrap.config[:chef_node_name] = get_config(:chef_node_name)
+      bootstrap.config[:prerelease] = get_config(:prerelease)
+      bootstrap.config[:bootstrap_version] = get_config(:bootstrap_version)
+      bootstrap.config[:distro] = get_config(:distro)
+      bootstrap.config[:use_sudo] = true unless get_config(:ssh_user) == 'root'
+      bootstrap.config[:template_file] = get_config(:template_file)
+      bootstrap.config[:environment] = get_config(:environment)
+      bootstrap.config[:first_boot_attributes] = get_config(:first_boot_attributes)
+      bootstrap.config[:log_level] = get_config(:log_level)
+      # may be needed for vpc_mode
+      bootstrap.config[:no_host_key_verify] = get_config(:no_host_key_verify)
+      bootstrap
+    end
   end
 
   def tcp_test_ssh(hostname)

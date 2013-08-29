@@ -13,7 +13,12 @@ class Chef
     class BaseVsphereCommand < Knife
 
       deps do
+        require 'chef/knife/winrm_base'
+        require 'winrm'
+        require 'em-winrm'
         require 'chef/knife/bootstrap'
+        require 'chef/knife/bootstrap_windows_winrm'
+        require 'chef/knife/core/windows_bootstrap_context'
         Chef::Knife::Bootstrap.load_deps
         require 'fog'
         require 'socket'
